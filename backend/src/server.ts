@@ -29,6 +29,9 @@ const BUFFER_CAPACITY = parseInt(process.env.BUFFER_CAPACITY || '50000');
 const DRAIN_INTERVAL_MS = parseInt(process.env.DRAIN_INTERVAL_MS || '100');
 const DEBOUNCE_WINDOW_MS = parseInt(process.env.DEBOUNCE_WINDOW_MS || '10000');
 const RATE_LIMIT_MAX = parseInt(process.env.RATE_LIMIT_MAX || '5000');
+const CORS_ORIGINS = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',')
+  : ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'];
 const START_TIME = Date.now();
 
 async function main() {
@@ -48,7 +51,7 @@ async function main() {
 
   // ─── Register plugins ──────────────────────────────────────────────────────
   await app.register(cors, {
-    origin: ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'],
+    origin: CORS_ORIGINS,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     credentials: true,
   });
@@ -94,7 +97,7 @@ async function main() {
   // ─── Attach Socket.IO to Fastify's HTTP server (after listen) ──────────────
   io = new SocketServer(app.server, {
     cors: {
-      origin: ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'],
+      origin: CORS_ORIGINS,
       methods: ['GET', 'POST'],
       credentials: true,
     },

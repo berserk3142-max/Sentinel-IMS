@@ -9,7 +9,8 @@ export function useSocket() {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    const s = io('http://localhost:3001', {
+    const socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+    const s = io(socketUrl, {
       transports: ['websocket', 'polling'],
     });
 
