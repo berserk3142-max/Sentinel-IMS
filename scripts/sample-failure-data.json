@@ -1,0 +1,139 @@
+{
+  "name": "Cascading RDBMS Outage → MCP → Cache Stampede",
+  "description": "Simulates a realistic production cascading failure starting with a primary database outage that propagates through dependent services.",
+  "phases": [
+    {
+      "phase": 1,
+      "name": "RDBMS Primary Outage",
+      "delay_before_ms": 0,
+      "signals": [
+        {
+          "component_id": "RDBMS_PRIMARY_01",
+          "error_type": "ConnectionPoolExhausted",
+          "severity": "critical",
+          "count": 100,
+          "interval_ms": 40,
+          "metadata": {
+            "pool_size": 50,
+            "active_connections": 50,
+            "waiting_queries": 200,
+            "latency_ms": 30000
+          }
+        },
+        {
+          "component_id": "RDBMS_REPLICA_02",
+          "error_type": "ReplicationLag",
+          "severity": "critical",
+          "count": 50,
+          "interval_ms": 30,
+          "metadata": {
+            "replication_lag_seconds": 120,
+            "bytes_behind": 50000000
+          }
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Dependent Service Cascade",
+      "delay_before_ms": 2000,
+      "signals": [
+        {
+          "component_id": "MCP_ORCHESTRATOR_01",
+          "error_type": "UpstreamDatabaseUnavailable",
+          "severity": "critical",
+          "count": 80,
+          "interval_ms": 50,
+          "metadata": {
+            "failed_queries": ["GetUserProfile", "UpdateSessionState", "FetchPermissions"],
+            "circuit_breaker": "OPEN",
+            "retry_exhausted": true
+          }
+        },
+        {
+          "component_id": "API_GATEWAY_01",
+          "error_type": "BadGateway",
+          "severity": "high",
+          "count": 60,
+          "interval_ms": 60,
+          "metadata": {
+            "http_status": 502,
+            "upstream": "MCP_ORCHESTRATOR_01",
+            "error_rate_percent": 87.5
+          }
+        },
+        {
+          "component_id": "AUTH_SERVICE_01",
+          "error_type": "TokenValidationTimeout",
+          "severity": "high",
+          "count": 40,
+          "interval_ms": 70,
+          "metadata": {
+            "validation_timeout_ms": 15000,
+            "fallback": "cached_token_used"
+          }
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "Cache Stampede",
+      "delay_before_ms": 1000,
+      "signals": [
+        {
+          "component_id": "CACHE_CLUSTER_01",
+          "error_type": "CacheStampede",
+          "severity": "high",
+          "count": 70,
+          "interval_ms": 40,
+          "metadata": {
+            "cache_hit_rate": 0.12,
+            "eviction_rate": 15000,
+            "memory_usage_percent": 94
+          }
+        },
+        {
+          "component_id": "CDN_EDGE_01",
+          "error_type": "OriginUnreachable",
+          "severity": "low",
+          "count": 30,
+          "interval_ms": 50,
+          "metadata": {
+            "origin_error": "503 Service Unavailable",
+            "fallback": "stale_cache_served",
+            "stale_age_seconds": 3600
+          }
+        }
+      ]
+    }
+  ],
+  "expected_incidents": {
+    "total": 7,
+    "by_severity": {
+      "P0": 3,
+      "P1": 3,
+      "P2": 1
+    },
+    "cascade_chain": [
+      "RDBMS_PRIMARY_01 (root cause)",
+      "RDBMS_REPLICA_02 (database layer)",
+      "MCP_ORCHESTRATOR_01 (depends on RDBMS)",
+      "API_GATEWAY_01 (depends on MCP)",
+      "AUTH_SERVICE_01 (depends on RDBMS)",
+      "CACHE_CLUSTER_01 (thundering herd)",
+      "CDN_EDGE_01 (origin unavailable)"
+    ]
+  },
+  "rca_data": {
+    "RDBMS_PRIMARY_01": {
+      "root_cause_category": "Database",
+      "fix_applied": "Restarted primary RDBMS instance, increased connection pool from 50 to 200, enabled connection queuing with 5s timeout",
+      "prevention_steps": "Implement connection pool monitoring with alerts at 70% utilization, add circuit breaker on DB connections, deploy read replicas for query offloading"
+    },
+    "MCP_ORCHESTRATOR_01": {
+      "root_cause_category": "ExternalDependency",
+      "fix_applied": "Upstream RDBMS restored. Reset circuit breaker, cleared connection backlog, restarted MCP pods.",
+      "prevention_steps": "Implement graceful degradation mode with cached responses when DB is unavailable, add dependency health checks to readiness probe."
+    }
+  }
+}

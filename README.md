@@ -23,8 +23,11 @@ Built to handle **10,000+ signals/sec** with backpressure, deduplication, and ze
 - [API Reference](#api-reference)
 - [Project Structure](#project-structure)
 - [Quick Start](#quick-start)
+- [Docker Compose Setup](#docker-compose-setup)
 - [Running Tests](#running-tests)
-- [Simulation Script](#simulation-script)
+- [Simulation Scripts](#simulation-scripts)
+- [Documentation & Specs](#documentation--specs)
+- [Bonus Creative Additions](#bonus-creative-additions)
 
 ---
 
@@ -555,51 +558,53 @@ erDiagram
 SentinelIMS/
 ├── backend/
 │   ├── src/
-│   │   ├── buffer/
-│   │   │   └── RingBuffer.ts        # Fixed-size circular buffer (backpressure)
-│   │   ├── debounce/
-│   │   │   └── DebounceEngine.ts     # Signal → Work Item aggregation (10s window)
-│   │   ├── ingestion/
-│   │   │   └── drainLoop.ts          # Background loop: buffer → debounce (100ms)
-│   │   ├── metrics/
-│   │   │   └── MetricsCollector.ts   # Throughput tracking + Socket.IO push (5s)
+│   │   ├── buffer/RingBuffer.ts        # Fixed-size circular buffer (backpressure)
+│   │   ├── debounce/DebounceEngine.ts  # Signal → Work Item aggregation (10s window)
+│   │   ├── ingestion/drainLoop.ts      # Background loop: buffer → debounce (100ms)
+│   │   ├── metrics/MetricsCollector.ts # Throughput tracking + Socket.IO push
 │   │   ├── routes/
-│   │   │   ├── ingestion.ts          # POST /api/signals, /api/signals/batch
-│   │   │   ├── incidents.ts          # CRUD, transitions, RCA, dashboard, metrics
-│   │   │   └── health.ts             # GET /health
-│   │   ├── state/
-│   │   │   └── StateMachine.ts       # Transition validation + MTTR + RCA guard
-│   │   ├── strategies/
-│   │   │   └── AlertStrategy.ts      # Strategy pattern: P0/P1/P2 + Factory
-│   │   ├── workers/
-│   │   │   └── WorkerPool.ts         # Concurrency control + exponential backoff
+│   │   │   ├── ingestion.ts            # POST /api/signals, /api/signals/batch
+│   │   │   ├── incidents.ts            # CRUD, transitions, RCA, dashboard, metrics
+│   │   │   └── health.ts               # GET /health
+│   │   ├── state/StateMachine.ts       # Transition validation + MTTR + RCA guard
+│   │   ├── strategies/AlertStrategy.ts # Strategy pattern: P0/P1/P2 + Factory
+│   │   ├── workers/WorkerPool.ts       # Concurrency control + exponential backoff
 │   │   ├── db/
-│   │   │   ├── schema.ts             # Drizzle ORM table definitions
-│   │   │   └── index.ts              # Neon connection
-│   │   └── server.ts                 # Main entry: wires everything together
+│   │   │   ├── schema.ts               # Drizzle ORM table definitions
+│   │   │   └── index.ts                # Neon connection
+│   │   └── server.ts                   # Main entry: wires everything together
 │   ├── tests/
-│   │   ├── ringBuffer.test.ts        # Buffer push/pop/overflow tests
-│   │   └── stateMachine.test.ts      # Transition validation + RCA guard tests
+│   │   ├── ringBuffer.test.ts          # Buffer push/pop/overflow tests
+│   │   └── stateMachine.test.ts        # Transition validation + RCA guard tests
+│   ├── Dockerfile                      # Multi-stage Docker build
 │   ├── drizzle.config.ts
 │   └── package.json
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   ├── Dashboard.tsx         # Main dashboard with all sub-views
-│   │   │   ├── IncidentDetail.tsx    # Detail view with signals + RCA form
-│   │   │   └── ui/                   # shadcn/ui components
-│   │   ├── hooks/
-│   │   │   └── useSocket.ts          # Socket.IO + dashboard + health + metrics hooks
+│   │   │   ├── Dashboard.tsx           # Main dashboard with all sub-views
+│   │   │   ├── IncidentDetail.tsx      # Detail view with signals + RCA form
+│   │   │   └── ui/                     # shadcn/ui components
+│   │   ├── hooks/useSocket.ts          # Socket.IO + dashboard + health + metrics hooks
 │   │   ├── lib/
-│   │   │   ├── api.ts                # HTTP client for all endpoints
-│   │   │   └── utils.ts              # Formatting helpers
-│   │   ├── App.tsx                   # App shell with sidebar navigation
-│   │   ├── main.tsx                  # React entry point
-│   │   └── index.css                 # Design system tokens + neumorphic styles
-│   ├── vite.config.ts                # Vite + proxy to backend
+│   │   │   ├── api.ts                  # HTTP client for all endpoints
+│   │   │   └── utils.ts                # Formatting helpers
+│   │   ├── App.tsx                     # App shell + Terminal + sidebar navigation
+│   │   ├── main.tsx                    # React entry point
+│   │   └── index.css                   # Design system tokens + neumorphic styles
+│   ├── Dockerfile                      # Multi-stage Docker build + nginx
+│   ├── nginx.conf                      # Nginx SPA routing + API proxy
+│   ├── vite.config.ts                  # Vite + proxy to backend
 │   └── package.json
 ├── scripts/
-│   └── simulate.ts                   # End-to-end demo simulation
+│   ├── simulate.ts                     # Basic lifecycle demo simulation
+│   ├── cascade-failure.ts              # Cascading failure: RDBMS → MCP → Cache
+│   └── sample-failure-data.json        # Mock failure event data (JSON)
+├── docs/
+│   ├── SPEC.md                         # Project specification
+│   ├── PROMPTS.md                      # Prompts & design decisions
+│   └── PLAN.md                         # Implementation plan
+├── docker-compose.yml                  # Docker Compose (backend + frontend)
 └── README.md
 ```
 
@@ -616,7 +621,7 @@ SentinelIMS/
 
 ```bash
 # Clone the repository
-git clone <repo-url>
+git clone https://github.com/berserk3142-max/Sentinel-IMS.git
 cd SentinelIMS
 
 # ─── Backend ───────────────────────────────
@@ -656,6 +661,43 @@ Open **http://localhost:5173** in your browser.
 
 ---
 
+## Docker Compose Setup
+
+The easiest way to run everything:
+
+```bash
+# 1. Create backend/.env with your DATABASE_URL
+echo "DATABASE_URL=postgresql://..." > backend/.env
+
+# 2. Start everything
+docker-compose up --build
+
+# Frontend: http://localhost:8080
+# Backend:  http://localhost:3001
+```
+
+**What Docker Compose starts:**
+- `sentinel-backend` — Fastify API + Socket.IO on port 3001 (with health check)
+- `sentinel-frontend` — Nginx serving React SPA on port 8080 (waits for backend healthy)
+
+```yaml
+# docker-compose.yml summary
+services:
+  backend:
+    build: ./backend
+    ports: ["3001:3001"]
+    env_file: ./backend/.env
+    healthcheck:
+      test: wget --spider -q http://localhost:3001/health
+  frontend:
+    build: ./frontend
+    ports: ["8080:80"]
+    depends_on:
+      backend: { condition: service_healthy }
+```
+
+---
+
 ## Running Tests
 
 ```bash
@@ -670,76 +712,75 @@ Tests cover:
 
 ---
 
-## Simulation Script
+## Simulation Scripts
 
-The simulation script demonstrates the **full incident lifecycle** end-to-end:
+### Basic Lifecycle Demo
 
 ```bash
-# From project root (backend must be running)
 npx tsx scripts/simulate.ts
 ```
 
-```mermaid
-flowchart TD
-    S1["Step 1: Send 150 signals<br/>RDBMS_PRIMARY_01 (P0)<br/>over ~8 seconds"]
-    S1 --> S2["Step 2: Wait 2s, send 80 signals<br/>CACHE_CLUSTER_01 (P2)"]
-    S2 --> S3["Step 3: Wait 12s for<br/>debounce windows to flush"]
-    S3 --> S4["Step 4: Check dashboard<br/>Verify incidents created"]
-    S4 --> S5["Step 5: Transition RDBMS<br/>OPEN → INVESTIGATING → RESOLVED"]
-    S5 --> S6["Step 6: Submit RCA<br/>Category: Database"]
-    S6 --> S7["Step 7: Close RDBMS incident<br/>RESOLVED → CLOSED ✅"]
-    S7 --> S8["Step 8: Try closing CACHE<br/>without RCA → 400 ❌"]
-    S8 --> S9["✅ Simulation Complete"]
+Sends 150 P0 signals + 80 P2 signals, transitions incidents through the full state machine, submits RCA, and verifies the RCA guard.
 
-    style S7 fill:#c8e6c9,stroke:#2e7d32
-    style S8 fill:#fff9c4,stroke:#f57f17
+### 🌊 Cascading Failure Simulation (RDBMS → MCP → Cache)
+
+```bash
+npx tsx scripts/cascade-failure.ts
 ```
 
-### Expected Output
+Simulates a realistic **multi-phase cascading production failure**:
 
-```
-📡 Step 1: Sending 150 signals for RDBMS_PRIMARY_01 (P0)...
-  ✅ 150 signals sent
+| Phase | Component | Error | Severity | Signals |
+|-------|-----------|-------|----------|---------|
+| 1 | RDBMS_PRIMARY_01 | ConnectionPoolExhausted | P0 | 100 |
+| 1 | RDBMS_REPLICA_02 | ReplicationLag | P0 | 50 |
+| 2 | MCP_ORCHESTRATOR_01 | UpstreamDatabaseUnavailable | P0 | 80 |
+| 2 | API_GATEWAY_01 | BadGateway | P1 | 60 |
+| 2 | AUTH_SERVICE_01 | TokenValidationTimeout | P1 | 40 |
+| 3 | CACHE_CLUSTER_01 | CacheStampede | P1 | 70 |
+| 3 | CDN_EDGE_01 | OriginUnreachable | P2 | 30 |
 
-📡 Step 2: Sending 80 signals for CACHE_CLUSTER_01 (P2)...
-  ✅ 80 signals sent
+Then recovers: resolves root cause (RDBMS), closes with RCA, and verifies RCA guard blocks closure without analysis.
 
-📊 Step 3: Dashboard shows 2 new incidents
+### Sample Failure Data (JSON)
 
-🔄 Step 4: OPEN → INVESTIGATING ✅ → RESOLVED ✅
-
-📝 Step 5: RCA submitted ✅
-
-🔒 Step 6: RESOLVED → CLOSED ✅ (has RCA)
-
-🧪 Step 7: Close without RCA → ✅ Correctly rejected (400)
-```
+See `scripts/sample-failure-data.json` for a structured JSON file defining failure scenarios, signal metadata, expected incidents, and RCA data — useful for automated testing or external tools.
 
 ---
 
 ## Worker Pool & Retry Logic
 
-The Worker Pool wraps every database write with **exponential backoff retry** to handle transient failures:
-
-```mermaid
-flowchart TD
-    TASK["DB Write Task"] --> A1["Attempt 1"]
-    A1 -->|Success| DONE["✅ Task Complete"]
-    A1 -->|Failure| W1["Wait 100ms"]
-    W1 --> A2["Attempt 2"]
-    A2 -->|Success| DONE
-    A2 -->|Failure| W2["Wait 200ms"]
-    W2 --> A3["Attempt 3"]
-    A3 -->|Success| DONE
-    A3 -->|Failure| FAIL["❌ Task Failed<br/>Error logged"]
-
-    style DONE fill:#c8e6c9,stroke:#2e7d32
-    style FAIL fill:#ffcdd2,stroke:#b71c1c
-```
-
 - **Max concurrency:** 10 simultaneous DB operations
-- **Retry delays:** 100ms → 200ms → 400ms (exponential)
+- **Retry delays:** 100ms → 200ms → 400ms (exponential backoff)
 - **Queue:** Excess tasks wait until a slot opens
+- Handles transient DB failures without data loss
+
+---
+
+## Documentation & Specs
+
+All design documents are checked into the `docs/` directory:
+
+| Document | Description |
+|----------|-------------|
+| [`docs/SPEC.md`](docs/SPEC.md) | Full project specification — requirements, goals, constraints |
+| [`docs/PROMPTS.md`](docs/PROMPTS.md) | All prompts and design decisions used to build the system |
+| [`docs/PLAN.md`](docs/PLAN.md) | Complete implementation plan with task checklist |
+
+---
+
+## Bonus Creative Additions
+
+| Feature | Description |
+|---------|-------------|
+| 🖥️ **Interactive Terminal** | In-browser terminal with real API commands (`health`, `incidents`, `buffer`, `metrics`, `flood`) |
+| 💬 **Team Chat** | Simulated on-call messaging with per-member auto-replies |
+| ⚡ **Flood Command** | Blast hundreds of signals from the terminal to stress-test the live graph |
+| 🌊 **Cascading Failure Sim** | Multi-phase RDBMS → MCP → Cache stampede scenario |
+| 📊 **Always-On Graph** | Signal chart is never blank — seeds synthetic data, transitions smoothly to real metrics |
+| 🔒 **RCA Guard** | Mandatory root cause analysis before any incident can be closed |
+| 🏃 **Marquee Bar** | Animated capability showcase in dashboard header |
+| 🎨 **Neumorphic Design** | Premium glassmorphic UI with Material Design 3 tokens |
 
 ---
 

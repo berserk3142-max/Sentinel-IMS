@@ -1,0 +1,43 @@
+# ╔══════════════════════════════════════════════════════════╗
+# ║           🛡️  SentinelIMS — Docker Compose              ║
+# ╚══════════════════════════════════════════════════════════╝
+#
+# Usage:
+#   docker-compose up --build
+#
+# This starts:
+#   - backend  → http://localhost:3001
+#   - frontend → http://localhost:8080
+
+services:
+  backend:
+    build: ./backend
+    container_name: sentinel-backend
+    ports:
+      - "3001:3001"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - PORT=3001
+      - HOST=0.0.0.0
+      - BUFFER_CAPACITY=50000
+      - DRAIN_INTERVAL_MS=100
+      - DEBOUNCE_WINDOW_MS=10000
+      - RATE_LIMIT_MAX=5000
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build: ./frontend
+    container_name: sentinel-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
