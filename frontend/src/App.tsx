@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Dashboard } from '@/components/Dashboard';
 import { IncidentDetail } from '@/components/IncidentDetail';
 
@@ -22,6 +22,7 @@ export default function App() {
   const [showNewIncidentForm, setShowNewIncidentForm] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [showTerminal, setShowTerminal] = useState(false);
 
   const currentTab = selectedIncident ? 'incidents' : activeTab;
 
@@ -33,6 +34,7 @@ export default function App() {
     setShowHelp(false);
     setShowNewIncidentForm(false);
     setShowLogs(false);
+    setShowTerminal(false);
   };
 
   return (
@@ -202,7 +204,7 @@ export default function App() {
         <div className="mt-auto border-t border-outline-variant/50 pt-4">
           <ul className="flex flex-col gap-2 list-none p-0 m-0">
             <li><button onClick={() => { setShowLogs(!showLogs); setActiveTab('dashboard'); setSelectedIncident(null); setSidebarCollapsed(false); }} className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-sm cursor-pointer transition-all ${showLogs ? 'text-black bg-white shadow-sm' : 'text-slate-500 hover:text-black'}`}><span className="material-symbols-outlined text-sm">terminal</span> Logs</button></li>
-            <li><button className="w-full flex items-center gap-3 px-4 py-2 rounded-lg text-slate-500 hover:text-black transition-all text-sm cursor-pointer"><span className="material-symbols-outlined text-sm">code</span> Terminal</button></li>
+            <li><button onClick={() => { setShowTerminal(!showTerminal); setShowLogs(false); setActiveTab('dashboard'); setSelectedIncident(null); setSidebarCollapsed(false); }} className={`w-full flex items-center gap-3 px-4 py-2 rounded-lg text-sm cursor-pointer transition-all ${showTerminal ? 'text-black bg-white shadow-sm' : 'text-slate-500 hover:text-black'}`}><span className="material-symbols-outlined text-sm">code</span> Terminal</button></li>
           </ul>
         </div>
       </nav>
@@ -215,7 +217,9 @@ export default function App() {
 
       {/* ─── Main Content ─────────────────────────────────────── */}
       <main className="md:ml-64 pt-16 min-h-screen p-6">
-        {selectedIncident ? (
+        {showTerminal ? (
+          <TerminalPanel />
+        ) : selectedIncident ? (
           <IncidentDetail incidentId={selectedIncident} onBack={() => setSelectedIncident(null)} />
         ) : (
           <Dashboard
@@ -226,6 +230,280 @@ export default function App() {
           />
         )}
       </main>
+    </div>
+  );
+}
+
+/* ─── Terminal Panel ──────────────────────────────────────────── */
+interface TermLine { type: 'input' | 'output' | 'error' | 'system'; text: string; }
+
+function TerminalPanel() {
+  const [lines, setLines] = useState<TermLine[]>([
+    { type: 'system', text: '╔══════════════════════════════════════════════════════════╗' },
+    { type: 'system', text: '║            🛡️  SentinelIMS Command Terminal              ║' },
+    { type: 'system', text: '╠══════════════════════════════════════════════════════════╣' },
+    { type: 'system', text: '║  Type "help" for available commands                     ║' },
+    { type: 'system', text: '╚══════════════════════════════════════════════════════════╝' },
+    { type: 'output', text: '' },
+  ]);
+  const [input, setInput] = useState('');
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIdx, setHistoryIdx] = useState(-1);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [lines]);
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const addLines = useCallback((newLines: TermLine[]) => {
+    setLines(prev => [...prev, ...newLines]);
+  }, []);
+
+  const execCommand = useCallback(async (cmd: string) => {
+    const trimmed = cmd.trim().toLowerCase();
+    addLines([{ type: 'input', text: `sentinel@ims:~$ ${cmd}` }]);
+
+    if (!trimmed) return;
+
+    setHistory(prev => [...prev, cmd]);
+    setHistoryIdx(-1);
+
+    const parts = trimmed.split(/\s+/);
+    const base = parts[0];
+
+    try {
+      switch (base) {
+        case 'help': {
+          addLines([
+            { type: 'output', text: '' },
+            { type: 'system', text: '  Available Commands:' },
+            { type: 'output', text: '  ─────────────────────────────────────────' },
+            { type: 'output', text: '  health          System health status' },
+            { type: 'output', text: '  incidents       List active incidents' },
+            { type: 'output', text: '  buffer          Ring buffer stats' },
+            { type: 'output', text: '  metrics         Current throughput metrics' },
+            { type: 'output', text: '  uptime          Server uptime' },
+            { type: 'output', text: '  send <comp>     Send a test signal' },
+            { type: 'output', text: '  flood [n]       Blast n signals (default 50) — watch the graph spike!' },
+            { type: 'output', text: '  clear           Clear terminal' },
+            { type: 'output', text: '  help            Show this help' },
+            { type: 'output', text: '' },
+          ]);
+          break;
+        }
+        case 'clear': {
+          setLines([]);
+          break;
+        }
+        case 'health': {
+          const { api } = await import('@/lib/api');
+          const h = await api.getHealth();
+          addLines([
+            { type: 'output', text: '' },
+            { type: 'system', text: `  System Status: ${h.status === 'healthy' ? '● HEALTHY' : '○ DEGRADED'}` },
+            { type: 'output', text: `  Database:      ${h.database.status} (${h.database.latencyMs}ms)` },
+            { type: 'output', text: `  Uptime:        ${Math.floor(h.uptime / 3600)}h ${Math.floor((h.uptime % 3600) / 60)}m ${h.uptime % 60}s` },
+            { type: 'output', text: `  Buffer:        ${h.buffer.size}/${h.buffer.capacity} (${h.buffer.usagePercent}%)` },
+            { type: 'output', text: `  Signals/sec:   ${h.metrics?.signalsPerSecond ?? 0}` },
+            { type: 'output', text: `  Active Inc:    ${h.metrics?.activeIncidents ?? 0}` },
+            { type: 'output', text: `  Total Proc:    ${(h.metrics?.totalSignalsProcessed ?? 0).toLocaleString()}` },
+            { type: 'output', text: '' },
+          ]);
+          break;
+        }
+        case 'incidents': {
+          const { api } = await import('@/lib/api');
+          const d = await api.getDashboard();
+          if (d.incidents.length === 0) {
+            addLines([{ type: 'output', text: '  No active incidents. All clear! ✓' }, { type: 'output', text: '' }]);
+          } else {
+            addLines([
+              { type: 'output', text: '' },
+              { type: 'system', text: `  Active Incidents (${d.incidents.length}):` },
+              { type: 'output', text: '  ──────────────────────────────────────────────────────' },
+              ...d.incidents.slice(0, 15).map(inc => ({
+                type: 'output' as const,
+                text: `  [${inc.severity}] ${inc.id.slice(0, 8)}  ${inc.componentId.padEnd(20)} ${inc.status}`,
+              })),
+              { type: 'output', text: '' },
+              { type: 'output', text: `  P0: ${d.counts.p0}  P1: ${d.counts.p1}  P2: ${d.counts.p2}  MTTR: ${d.avgMttr ? `${Math.round(d.avgMttr)}s` : '—'}` },
+              { type: 'output', text: '' },
+            ]);
+          }
+          break;
+        }
+        case 'buffer': {
+          const { api } = await import('@/lib/api');
+          const h = await api.getHealth();
+          const pct = h.buffer.usagePercent;
+          const barLen = 30;
+          const filled = Math.round((pct / 100) * barLen);
+          const bar = '█'.repeat(filled) + '░'.repeat(barLen - filled);
+          addLines([
+            { type: 'output', text: '' },
+            { type: 'system', text: '  Ring Buffer Status:' },
+            { type: 'output', text: `  [${bar}] ${pct}%` },
+            { type: 'output', text: `  Size:     ${h.buffer.size.toLocaleString()} / ${h.buffer.capacity.toLocaleString()}` },
+            { type: 'output', text: `  Pushed:   ${h.buffer.totalPushed.toLocaleString()}` },
+            { type: 'output', text: `  Dropped:  ${h.buffer.totalDropped.toLocaleString()}` },
+            { type: 'output', text: '' },
+          ]);
+          break;
+        }
+        case 'metrics': {
+          const { api } = await import('@/lib/api');
+          const h = await api.getHealth();
+          addLines([
+            { type: 'output', text: '' },
+            { type: 'system', text: '  Throughput Metrics:' },
+            { type: 'output', text: `  Signals/sec:        ${h.metrics?.signalsPerSecond ?? 0}` },
+            { type: 'output', text: `  Active Incidents:   ${h.metrics?.activeIncidents ?? 0}` },
+            { type: 'output', text: `  Total Processed:    ${(h.metrics?.totalSignalsProcessed ?? 0).toLocaleString()}` },
+            { type: 'output', text: `  Buffer Usage:       ${h.buffer.usagePercent}%` },
+            { type: 'output', text: '' },
+          ]);
+          break;
+        }
+        case 'uptime': {
+          const { api } = await import('@/lib/api');
+          const h = await api.getHealth();
+          const hrs = Math.floor(h.uptime / 3600);
+          const mins = Math.floor((h.uptime % 3600) / 60);
+          const secs = h.uptime % 60;
+          addLines([
+            { type: 'output', text: `  Server uptime: ${hrs}h ${mins}m ${secs}s` },
+            { type: 'output', text: '' },
+          ]);
+          break;
+        }
+        case 'send': {
+          const comp = parts[1] || 'TEST_COMPONENT';
+          const { api } = await import('@/lib/api');
+          await api.sendSignal({
+            component_id: comp.toUpperCase(),
+            error_type: 'ManualTest',
+            severity: 'low',
+            metadata: { source: 'terminal', created_by: 'operator' },
+          });
+          addLines([
+            { type: 'system', text: `  ✓ Signal sent to ${comp.toUpperCase()}` },
+            { type: 'output', text: '' },
+          ]);
+          break;
+        }
+        case 'flood': {
+          const count = Math.min(parseInt(parts[1] || '50') || 50, 500);
+          const components = ['API_GATEWAY', 'AUTH_SERVICE', 'CACHE_CLUSTER', 'RDBMS_PRIMARY', 'QUEUE_BROKER', 'CDN_EDGE', 'ML_PIPELINE', 'PAYMENT_SVC'];
+          const severities = ['critical', 'high', 'low'];
+          addLines([
+            { type: 'system', text: `  ⚡ Flooding ${count} signals...` },
+          ]);
+          const { api } = await import('@/lib/api');
+          const promises = Array.from({ length: count }, (_, i) => {
+            const comp = components[i % components.length];
+            const sev = severities[Math.floor(Math.random() * severities.length)];
+            return api.sendSignal({
+              component_id: `${comp}_${String(Math.floor(Math.random() * 10)).padStart(2, '0')}`,
+              error_type: ['ConnectionTimeout', 'MemoryExhaustion', 'DiskIOError', 'RateLimitHit', 'CertExpiry'][Math.floor(Math.random() * 5)],
+              severity: sev,
+              metadata: { source: 'terminal-flood', batch: i },
+            }).catch(() => null);
+          });
+          await Promise.all(promises);
+          addLines([
+            { type: 'system', text: `  ✓ ${count} signals sent — switch to Dashboard to see the graph spike!` },
+            { type: 'output', text: '' },
+          ]);
+          break;
+        }
+        default: {
+          addLines([
+            { type: 'error', text: `  sentinel: command not found: ${base}` },
+            { type: 'output', text: '  Type "help" for available commands' },
+            { type: 'output', text: '' },
+          ]);
+        }
+      }
+    } catch (err: any) {
+      addLines([
+        { type: 'error', text: `  Error: ${err.message}` },
+        { type: 'output', text: '' },
+      ]);
+    }
+  }, [addLines]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      execCommand(input);
+      setInput('');
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (history.length > 0) {
+        const newIdx = historyIdx === -1 ? history.length - 1 : Math.max(0, historyIdx - 1);
+        setHistoryIdx(newIdx);
+        setInput(history[newIdx]);
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (historyIdx !== -1) {
+        const newIdx = historyIdx + 1;
+        if (newIdx >= history.length) {
+          setHistoryIdx(-1);
+          setInput('');
+        } else {
+          setHistoryIdx(newIdx);
+          setInput(history[newIdx]);
+        }
+      }
+    }
+  };
+
+  return (
+    <div className="animate-fade-in space-y-4">
+      <h2 className="text-h1 text-on-surface flex items-center gap-2">
+        <span className="material-symbols-outlined">code</span> Terminal
+      </h2>
+      <div
+        className="rounded-xl overflow-hidden border border-slate-700 shadow-lg"
+        onClick={() => inputRef.current?.focus()}
+      >
+        {/* Title bar */}
+        <div className="flex items-center gap-2 px-4 py-2.5 bg-[#2d2d2d] border-b border-slate-700">
+          <div className="flex gap-1.5">
+            <span className="w-3 h-3 rounded-full bg-[#ff5f57]" />
+            <span className="w-3 h-3 rounded-full bg-[#febc2e]" />
+            <span className="w-3 h-3 rounded-full bg-[#28c840]" />
+          </div>
+          <span className="flex-1 text-center text-[12px] text-slate-400 font-mono">sentinel@ims — bash</span>
+        </div>
+        {/* Terminal body */}
+        <div className="bg-[#1a1a2e] min-h-[500px] max-h-[calc(100vh-200px)] overflow-y-auto p-4 font-mono text-[13px] leading-relaxed cursor-text">
+          {lines.map((line, i) => (
+            <div key={i} className={
+              line.type === 'input' ? 'text-emerald-400' :
+              line.type === 'error' ? 'text-red-400' :
+              line.type === 'system' ? 'text-cyan-400' :
+              'text-slate-300'
+            }>
+              {line.text || '\u00A0'}
+            </div>
+          ))}
+          <div className="flex items-center">
+            <span className="text-emerald-400 shrink-0">sentinel@ims:~$&nbsp;</span>
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              className="flex-1 bg-transparent text-slate-200 outline-none font-mono text-[13px] caret-emerald-400"
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </div>
+          <div ref={bottomRef} />
+        </div>
+      </div>
     </div>
   );
 }

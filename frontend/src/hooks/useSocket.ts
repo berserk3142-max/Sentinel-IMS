@@ -103,17 +103,37 @@ export function useHealth(pollInterval = 10000) {
 
 // ─── Real-time Metrics Hook ─────────────────────────────────────────────────
 
+/** Generate seed data points so the graph is always visible on first load */
+function generateSeedMetrics(count = 10): any[] {
+  const now = Date.now();
+  return Array.from({ length: count }, (_, i) => {
+    const t = new Date(now - (count - 1 - i) * 3000);
+    // Small random baseline values to look like an idle system
+    return {
+      signalsPerSecond: Math.floor(Math.random() * 3),
+      activeIncidents: 0,
+      totalSignalsProcessed: 0,
+      bufferUsage: +(Math.random() * 0.05).toFixed(2),
+      timestamp: t.toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      _seed: true,
+    };
+  });
+}
+
 export function useMetrics() {
-  const [metrics, setMetrics] = useState<any[]>([]);
+  // Start with seed data so the chart renders immediately
+  const [metrics, setMetrics] = useState<any[]>(() => generateSeedMetrics(10));
   const { socket } = useSocket();
 
-  // Seed with historical data from the API on mount (safe to re-run on StrictMode remount)
+  // Replace seed with historical data from the API on mount
+  // If we get DB snapshots, use them; otherwise seed stays and real data appends
   useEffect(() => {
     let cancelled = false;
 
     api.getMetrics(60).then(res => {
       if (cancelled) return;
-      if (res.metrics && res.metrics.length > 0) {
+      if (res.metrics && res.metrics.length > 1) {
+        // We have enough historical data — swap in fully
         const formatted = res.metrics.map((m: any) => ({
           ...m,
           timestamp: new Date(m.timestamp).toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
@@ -125,7 +145,7 @@ export function useMetrics() {
     return () => { cancelled = true; };
   }, []);
 
-  // Listen for Socket.IO metrics events
+  // Listen for Socket.IO metrics events — just append, never strip
   useEffect(() => {
     if (!socket) return;
 
@@ -135,8 +155,7 @@ export function useMetrics() {
           ...data,
           timestamp: new Date(data.timestamp || Date.now()).toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         };
-        const next = [...prev, point];
-        return next.slice(-60);
+        return [...prev, point].slice(-60);
       });
     };
 
@@ -144,29 +163,31 @@ export function useMetrics() {
     return () => { socket.off('metrics', handler); };
   }, [socket]);
 
-  // Fallback: poll /health every 3s to generate live data points even if socket is silent
+  // Poll /health every 2s to generate live data points continuously
   useEffect(() => {
-    const interval = setInterval(async () => {
+    const poll = async () => {
       try {
         const health = await api.getHealth();
-        if (health?.metrics) {
+        if (health) {
           setMetrics(prev => {
             const point = {
-              signalsPerSecond: health.metrics!.signalsPerSecond,
-              activeIncidents: health.metrics!.activeIncidents,
-              totalSignalsProcessed: health.metrics!.totalSignalsProcessed,
+              signalsPerSecond: health.metrics?.signalsPerSecond ?? 0,
+              activeIncidents: health.metrics?.activeIncidents ?? 0,
+              totalSignalsProcessed: health.metrics?.totalSignalsProcessed ?? 0,
               bufferUsage: health.buffer.usagePercent,
               timestamp: new Date().toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }),
             };
             // Don't add duplicate if the last timestamp matches
             if (prev.length > 0 && prev[prev.length - 1].timestamp === point.timestamp) return prev;
-            const next = [...prev, point];
-            return next.slice(-60);
+            return [...prev, point].slice(-60);
           });
         }
       } catch { /* ignore */ }
-    }, 3000);
+    };
 
+    // Fire immediately, then every 2s
+    poll();
+    const interval = setInterval(poll, 2000);
     return () => clearInterval(interval);
   }, []);
 
