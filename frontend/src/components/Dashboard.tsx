@@ -499,7 +499,7 @@ export function Dashboard({ onSelectIncident, activeTab = 'dashboard', searchQue
                     <Tooltip
                       contentStyle={{ background: '#fff', border: '1px solid #cfc4c5', borderRadius: '8px', fontFamily: 'DM Mono', fontSize: '12px', boxShadow: '4px 4px 10px rgba(0,0,0,0.08)' }}
                       labelStyle={{ color: '#7e7576', marginBottom: 4 }}
-                      formatter={(value: number, name: string) => [value, name === 'signalsPerSecond' ? 'Signals/sec' : 'Buffer %']}
+                      formatter={(value: any, name: any) => [value, name === 'signalsPerSecond' ? 'Signals/sec' : 'Buffer %']}
                     />
                     <Area type="monotone" dataKey="signalsPerSecond" name="signalsPerSecond" stroke="#505f76" strokeWidth={2} fill="url(#gradSignals)" dot={false} activeDot={{ r: 4, fill: '#505f76', stroke: '#fff', strokeWidth: 2 }} />
                     <Area type="monotone" dataKey="bufferUsage" name="bufferUsage" stroke="#ba1a1a" strokeWidth={1.5} fill="url(#gradBuffer)" dot={false} activeDot={{ r: 3, fill: '#ba1a1a', stroke: '#fff', strokeWidth: 2 }} />

@@ -171,7 +171,7 @@ export function IncidentDetail({ incidentId, onBack }: Props) {
 
                     <div className="flex items-center gap-3 mb-3">
                       <span className="text-data-mono text-on-surface-variant">
-                        {new Date(signal.timestamp).toLocaleTimeString(undefined, { hour12: false, fractionalSecondDigits: 3 })}
+                        {new Date(signal.timestamp).toLocaleTimeString(undefined, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                       </span>
                       <span className="text-label-caps bg-surface-container-highest px-2 py-1 rounded text-on-surface">
                         {signal.errorType}
